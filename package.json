@@ -1,0 +1,27 @@
+{
+  "name": "windows-docker-machine",
+  "version": "0.0.4",
+  "description": "experimental cli to launch windows docker images from unix",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jantimon/windows-docker-machine-cli.git"
+  },
+  "bin": "./bin/windows-docker-machine.js",
+  "keywords": ["docker", "windows"],
+  "author": "Jan Nicklas",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/jantimon/windows-docker-machine-cli/issues"
+  },
+  "homepage": "https://github.com/jantimon/windows-docker-machine-cli#readme",
+  "files": [
+    "src/*",
+    "bin/*",
+    "windows-docker-machine/LICENSE",
+    "windows-docker-machine/Vagrantfile",
+    "windows-docker-machine/scripts/*"
+  ],
+  "dependencies": {
+    "yargs": "15.3.1"
+  }
+}
