@@ -4,36 +4,37 @@ const Docker = require("../src/docker");
 const Vagrant = require("../src/vagrant");
 const VirtualBox = require("../src/virtualbox");
 const yargs = require("yargs");
+const fs = require("fs");
 
 yargs
   .command(
     "powershell",
     "starts powershell inside a docker image",
     (yargs) => {
-      yargs.option("cache", {
+      yargs.option("noCleanup", {
         type: "boolean",
         description: "Keep VM instance",
       })
     },
-    (argv) => launchPowerShell(Boolean(argv.cache))
+    (argv) => launchPowerShell(Boolean(argv.noCleanup), argv.vagrantfile ? String(argv.vagrantfile): undefined)
   )
 
   .command(
     "run",
     "runs a docker image",
     (yargs) => {
-      yargs.option("cache", {
+      yargs.option("noCleanup", {
         type: "boolean",
-        description: "Keep VM instance",
+        description: "Keep VM instance running",
       })
     },
     (argv) => {
-      const runIndex = process.argv.indexOf("run");
+      const runIndex = Math.max(process.argv.indexOf("run"), process.argv.indexOf("--noCleanup"));
       if (!runIndex) {
         yargs.showHelp();
         process.exit(1);
       }
-      dockerRun(process.argv.slice(runIndex + 1), Boolean(argv.cache));
+      dockerRun(process.argv.slice(runIndex + 1), Boolean(argv.noCleanup), argv.vagrantfile ? String(argv.vagrantfile): undefined);
     }
   )
 
@@ -59,6 +60,11 @@ yargs
     alias: "v",
     type: "boolean",
     description: "Run with verbose logging",
+  })
+
+  .option("vagrantfile", {
+    type: "string",
+    description: "Path to a custom vagrant file",
   })
 
   .showHelpOnFail(true).argv;
@@ -87,7 +93,7 @@ async function assertDockerVersion() {
   if (!(await Docker.dockerSupportsContext())) {
     console.error(
       `❌ your docker version is to old (${await (
-        await Docker.getDockerVersion()
+        await Docker.getDockerVersion() || []
       ).join(".")})`
     );
     console.log(
@@ -97,7 +103,7 @@ async function assertDockerVersion() {
   }
 
   console.log(
-    `Docker found: (${await (await Docker.getDockerVersion()).join(".")})`
+    `Docker found: (${await (await Docker.getDockerVersion() || []).join(".")})`
   );
 }
 
@@ -112,7 +118,7 @@ async function assertVagrantVersion() {
   if (!(await Vagrant.vagrantSupportsConfig())) {
     console.error(
       `❌ your vagrant version is to old (${await (
-        await Vagrant.getVagrantVersion()
+        await Vagrant.getVagrantVersion() || []
       ).join(".")})`
     );
     console.log(
@@ -122,7 +128,7 @@ async function assertVagrantVersion() {
   }
 
   console.log(
-    `Vagrant found: (${await (await Vagrant.getVagrantVersion()).join(".")})`
+    `Vagrant found: (${(await Vagrant.getVagrantVersion() || []).join(".")})`
   );
 
   const virtualBoxVersion = await VirtualBox.getVirtualBoxVersion();
@@ -131,38 +137,52 @@ async function assertVagrantVersion() {
   }
 }
 
-async function launchVagrant() {
+/**
+ * Launch vagrant for the given vagrant file
+ * @param {string} [vagrantFileName] 
+ */
+async function launchVagrant(vagrantFileName) {
+  const config = vagrantFileName ? fs.readFileSync(vagrantFileName, 'utf-8') : '';
   const isBoxRunning = await Vagrant.isVagrantBoxRunning();
   if (isBoxRunning) {
     console.log("vagrant box is already running");
+    await Vagrant.reloadMachine(config)
   } else {
     console.log("🚀 launching vagrant");
-    await Vagrant.execute(["up"]);
+    await Vagrant.startMachine(config);
   }
 }
 
-
 /**
- * @param {boolean} cache
+ * Launch a demo docker image which runs an interactive
+ * powershell
+ * 
+ * @param {boolean} noCleanup
+ * @param {string} [vagrantFileName]
  */
-async function launchPowerShell(cache) {
-  await assertVersions();
-  await launchVagrant();
-  await Docker.launchPowerShell();
-  if (!cache) {
-    await Vagrant.destroy();
-  }
+async function launchPowerShell(noCleanup, vagrantFileName) {
+  await dockerRun([
+    "-i",
+    "--tty",
+    "--volume",
+    `C:${process.cwd()}:C:/cwd`,
+    "mcr.microsoft.com/windows/servercore:1809",
+    "powershell",
+  ], noCleanup, vagrantFileName);
 }
 
 /**
  * @param {string[]} dockerRunArgs
- * @param {boolean} cache
+ * @param {boolean} noCleanup
+ * @param {string} [vagrantFileName]
  */
-async function dockerRun(dockerRunArgs, cache) {
+async function dockerRun(dockerRunArgs, noCleanup, vagrantFileName) {
   await assertVersions();
-  await launchVagrant();
-  await Docker.runDocker(dockerRunArgs);
-  if (!cache) {
+  await launchVagrant(vagrantFileName);
+  console.log(`🚀 launch docker\n$ docker run ${dockerRunArgs.join(' ')}`);
+  // Always run docker interactive to wait until the docker image shuts down
+  await Docker.runDocker(['--interactive', ...dockerRunArgs]);
+  if (!noCleanup) {
     await Vagrant.destroy();
   }
 }

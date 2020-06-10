@@ -30,9 +30,10 @@ async function getDockerVersion() {
       return;
     }
     if (/invalid character.+in host name/.test(String(e.message))) {
+      const homeDir = process.env.HOME ? path.resolve(process.env.HOME) : '~';
       console.error(
-        `\nError in docker context configuration.\n\nPlease remove "currentContext" from ${path.resolve(
-          process.env.HOME,
+        `\nError in docker context configuration.\n\nPlease remove "currentContext" from ${path.join(
+          homeDir,
           ".docker/config.json"
         )} manually.\n See also https://github.com/StefanScherer/windows-docker-machine/issues/67\n`
       );
@@ -47,10 +48,11 @@ async function getDockerVersion() {
  * Returns if docker supports context
  */
 async function dockerSupportsContext() {
-  if (!isDockerInstalled()) {
+  const version = await getDockerVersion()
+  if (!isDockerInstalled() || !version) {
     return false;
   }
-  const [major, minor] = await getDockerVersion();
+  const [major, minor] = version;
   return (major === 19 && minor >= 3) || major > 19;
 }
 
@@ -67,24 +69,14 @@ async function setContext(box = "2019-box") {
   });
 }
 
-async function launchPowerShell(box) {
-  await setContext(box);
-  await spawn(
-    "docker",
-    [
-      "run",
-      "-it",
-      "-v",
-      `C:${process.cwd()}:C:/cwd`,
-      "mcr.microsoft.com/windows/servercore:1809",
-      "powershell",
-    ],
-    {
-      stdio: "inherit",
-    }
-  );
-}
-
+/**
+ * Run a docker image using windows-docker-machine
+ * 
+ * e.g.:
+ *   
+ * @param {string[]} args 
+ * @param {string} [box] 
+ */
 async function runDocker(args, box) {
   await setContext(box);
   await spawn("docker", ["run", ...args], {
@@ -97,6 +89,5 @@ module.exports = {
   dockerSupportsContext,
   isDockerInstalled,
   setContext,
-  launchPowerShell,
   runDocker,
 };

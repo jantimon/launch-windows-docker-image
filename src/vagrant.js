@@ -4,6 +4,8 @@ const child_process = require('child_process');
 const exec = util.promisify(child_process.exec);
 const path = require('path');
 const spawn = require('./spawn').spawn;
+const writeFile = util.promisify(require('fs').writeFile);
+const unlink = util.promisify(require('fs').unlink);
 
 /** @type {ReturnType<typeof exec>} */
 let versionCache;
@@ -33,10 +35,11 @@ async function getVagrantVersion () {
  * Returns if Vagrant supports context
  */
 async function vagrantSupportsConfig() {
-  if (!isVagrantInstalled()) {
+  const version = await getVagrantVersion();
+  if (!isVagrantInstalled() || !version) {
     return false;
   }
-  const [major, minor] = await getVagrantVersion();
+  const [major, minor] = version;
   return (major === 2 && minor >= 2) || major > 2;
 }
 
@@ -74,11 +77,65 @@ async function isVagrantBoxRunning(box = defaultBox) {
 
 /**
  * Destroys the box and delete all files 
+ * @param {string} [box]
  */
 async function destroy(box) {
   console.log("🧹cleaning up");
   await execute(['halt', '-f'], box);
   await execute(['destroy', '-f'], box);
+  await unlink(getVagrantOverwriteFilePath()).catch(console.error);
+}
+
+async function startMachine(config='', box = defaultBox) {
+  await writeVagrantConfig(config);
+  await spawn('vagrant', ['up', box], {
+    stdio: 'inherit',
+    cwd: path.resolve(__dirname, '../windows-docker-machine'),
+    env: {
+      ...process.env,
+      VAGRANT_VAGRANTFILE: getVagrantOverwriteFileName()
+    }
+  });
+}
+
+async function reloadMachine(config='', box = defaultBox) {
+  await writeVagrantConfig(config);
+  await spawn('vagrant', ['up', box], {
+    stdio: 'inherit',
+    cwd: path.resolve(__dirname, '../windows-docker-machine'),
+    env: {
+      ...process.env,
+      VAGRANT_VAGRANTFILE: getVagrantOverwriteFileName()
+    }
+  });
+}
+
+/**
+ * Write a Vagrantfile with additional settings to 
+ * the base windows-docker-machine Vagrantfile 
+ * 
+ * @param {string} config 
+ */
+async function writeVagrantConfig(config) {
+  await writeFile(getVagrantOverwriteFilePath(), `
+    base_vagrantfile = './Vagrantfile'
+    load base_vagrantfile
+    ${config}
+  `);
+}
+
+/**
+ * Get the base overwrite filename
+ */
+function getVagrantOverwriteFileName() {
+  return 'VagrantfileOverwrites';
+}
+
+/**
+ * Get the full absolute overwrite file path
+ */
+function getVagrantOverwriteFilePath() {
+  return path.resolve(__dirname, '../windows-docker-machine/', getVagrantOverwriteFileName());
 }
 
 module.exports = {
@@ -87,5 +144,7 @@ module.exports = {
   isVagrantInstalled,
   execute,
   destroy,
+  startMachine,
+  reloadMachine,
   isVagrantBoxRunning,
 }
