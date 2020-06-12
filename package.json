@@ -1,6 +1,6 @@
 {
   "name": "windows-docker-machine",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "experimental cli to launch windows docker images from unix",
   "repository": {
     "type": "git",
@@ -25,10 +25,12 @@
     "windows-docker-machine/scripts/*"
   ],
   "dependencies": {
+    "shell-escape": "0.2.0",
     "yargs": "15.3.1"
   },
   "devDependencies": {
     "@types/node": "14.0.13",
+    "@types/shell-escape": "0.2.0",
     "@types/yargs": "15.0.5"
   }
 }

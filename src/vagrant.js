@@ -5,6 +5,8 @@ const exec = util.promisify(child_process.exec);
 const path = require('path');
 const spawn = require('./spawn').spawn;
 const writeFile = util.promisify(require('fs').writeFile);
+const exists = util.promisify(require('fs').exists);
+const readFile = util.promisify(require('fs').readFile);
 const unlink = util.promisify(require('fs').unlink);
 
 /** @type {ReturnType<typeof exec>} */
@@ -61,6 +63,10 @@ async function execute(args, box = defaultBox) {
   await spawn('vagrant', [...args, ...(box ? [box] : []) ], {
     stdio: 'inherit',
     cwd: path.resolve(__dirname, '../windows-docker-machine'),
+    env: {
+      ...process.env,
+      VAGRANT_VAGRANTFILE: getVagrantOverwriteFileName()
+    }
   });
 }
 
@@ -86,30 +92,6 @@ async function destroy(box) {
   await unlink(getVagrantOverwriteFilePath()).catch(console.error);
 }
 
-async function startMachine(config='', box = defaultBox) {
-  await writeVagrantConfig(config);
-  await spawn('vagrant', ['up', box], {
-    stdio: 'inherit',
-    cwd: path.resolve(__dirname, '../windows-docker-machine'),
-    env: {
-      ...process.env,
-      VAGRANT_VAGRANTFILE: getVagrantOverwriteFileName()
-    }
-  });
-}
-
-async function reloadMachine(config='', box = defaultBox) {
-  await writeVagrantConfig(config);
-  await spawn('vagrant', ['up', box], {
-    stdio: 'inherit',
-    cwd: path.resolve(__dirname, '../windows-docker-machine'),
-    env: {
-      ...process.env,
-      VAGRANT_VAGRANTFILE: getVagrantOverwriteFileName()
-    }
-  });
-}
-
 /**
  * Write a Vagrantfile with additional settings to 
  * the base windows-docker-machine Vagrantfile 
@@ -117,11 +99,19 @@ async function reloadMachine(config='', box = defaultBox) {
  * @param {string} config 
  */
 async function writeVagrantConfig(config) {
-  await writeFile(getVagrantOverwriteFilePath(), `
-    base_vagrantfile = './Vagrantfile'
-    load base_vagrantfile
-    ${config}
-  `);
+  const configContent = `# Generated
+base_vagrantfile = './Vagrantfile'
+load base_vagrantfile
+${config}`;
+  let currentConfig = '';
+  try {
+    currentConfig = await readFile(getVagrantOverwriteFilePath(), 'UTF8');
+  } catch(e) {}
+  if (currentConfig === configContent) {
+    return false;
+  }
+  await writeFile(getVagrantOverwriteFilePath(), configContent);
+  return true;
 }
 
 /**
@@ -138,13 +128,66 @@ function getVagrantOverwriteFilePath() {
   return path.resolve(__dirname, '../windows-docker-machine/', getVagrantOverwriteFileName());
 }
 
+/**
+ * use the Vagrantfile in the current working directory
+ * if a custom vagrantfile path is set use it instead
+ * 
+ * Returns true if the config was changed
+ * 
+ * @param {unknown} [vagrantfilePath] 
+ * @param {string} [additionalContent] 
+ * @returns {Promise<boolean>}
+ */
+async function useVagrantFile(vagrantfilePath, additionalContent = '') {
+  if (typeof vagrantfilePath !== 'string' && typeof vagrantfilePath !== 'undefined') {
+    return await writeVagrantConfig('' + '\n' + additionalContent);
+  }
+  return await writeVagrantConfig(await loadVagrantFile(vagrantfilePath) + '\n' + additionalContent);
+}
+
+/**
+ * Load a vagrant file - if none is pathed use the 
+ * Vagrant file from the current directory
+ * 
+ * @param {string} [vagrantfilePath] 
+ */
+async function loadVagrantFile(vagrantfilePath) {
+  if (vagrantfilePath) {
+    return await readFile(vagrantfilePath, 'UTF8');
+  }
+  if (await exists('Vagrantfile')) {
+    return await readFile("Vagrantfile", 'UTF8');
+  }
+  return '';
+}
+
+/**
+ * Launch vagrant for the given vagrant file
+ * @param {unknown} [vagrantFileName] 
+ * @param {string} [vagrantConfigCommands] 
+ */
+async function launchVagrant(vagrantFileName, vagrantConfigCommands) {
+  const configChanged = useVagrantFile(vagrantFileName, vagrantConfigCommands);
+  const isBoxRunning = await isVagrantBoxRunning();
+  if (isBoxRunning) {
+    console.log("vagrant box is already running");
+    if (configChanged) {
+      console.log("🚀 vagrant config changed - restart box");
+      await execute(["reload"])
+    }
+  } else {
+    console.log("🚀 launching vagrant");
+    await execute(["up"]);
+  }
+}
+
 module.exports = {
   getVagrantVersion,
   vagrantSupportsConfig,
   isVagrantInstalled,
   execute,
   destroy,
-  startMachine,
-  reloadMachine,
   isVagrantBoxRunning,
+  useVagrantFile,
+  launchVagrant
 }

@@ -4,7 +4,7 @@ const Docker = require("../src/docker");
 const Vagrant = require("../src/vagrant");
 const VirtualBox = require("../src/virtualbox");
 const yargs = require("yargs");
-const fs = require("fs");
+const DockerCompose = require("../src/docker-compose");
 
 yargs
   .command(
@@ -15,8 +15,35 @@ yargs
         type: "boolean",
         description: "Keep VM instance",
       })
+      yargs.option("vagrantfile", {
+        type: "string",
+        description: "Custom vagrant file",
+      })
     },
     (argv) => launchPowerShell(Boolean(argv.noCleanup), argv.vagrantfile ? String(argv.vagrantfile): undefined)
+  )
+
+  .command(
+    "vagrant",
+    "executes a vagrant command",
+    (yargs) => {
+      yargs.option("vagrantfile", {
+        type: "string",
+        description: "Custom vagrant file",
+      })
+      yargs.option("skipVersionCheck", {
+        type: "boolean",
+        description: "Ignore invalid prerequisite versions",
+      })
+    },
+    async (argv) => {
+      if (!argv.skipVersionCheck) {
+        await assertVagrantVersion();
+      }
+      const vagrantCommands = argv._.slice(1);
+      await Vagrant.useVagrantFile(argv.vagrantfile);
+      await Vagrant.execute(vagrantCommands)
+    }
   )
 
   .command(
@@ -25,16 +52,15 @@ yargs
     (yargs) => {
       yargs.option("noCleanup", {
         type: "boolean",
-        description: "Keep VM instance running",
+        description: "Keep VM instance",
+      })
+      yargs.option("vagrantfile", {
+        type: "string",
+        description: "Custom vagrant file",
       })
     },
     (argv) => {
-      const runIndex = Math.max(process.argv.indexOf("run"), process.argv.indexOf("--noCleanup"));
-      if (!runIndex) {
-        yargs.showHelp();
-        process.exit(1);
-      }
-      dockerRun(process.argv.slice(runIndex + 1), Boolean(argv.noCleanup), argv.vagrantfile ? String(argv.vagrantfile): undefined);
+      dockerRun( argv._, Boolean(argv.noCleanup), argv.vagrantfile ? String(argv.vagrantfile): undefined);
     }
   )
 
@@ -42,29 +68,64 @@ yargs
     "halt",
     "shuts down the vagrant image",
     (yargs) => {
-      yargs;
+      yargs.option("vagrantfile", {
+        type: "string",
+        description: "Custom vagrant file",
+      })
+      yargs.option("skipVersionCheck", {
+        type: "boolean",
+        description: "Ignore invalid prerequisite versions",
+      })
     },
-    (argv) => vagrantCommand(["halt"])
+    async (argv) => {
+      if (!argv.skipVersionCheck) {
+        await assertVagrantVersion();
+      }
+      await Vagrant.useVagrantFile(argv.vagrantfile);
+      vagrantCommand(["halt"])
+    }
   )
 
   .command(
     "destroy",
     "destroy the vagrant image and relaese the disk space",
     (yargs) => {
-      yargs;
+      yargs.option("vagrantfile", {
+        type: "string",
+        description: "Custom vagrant file",
+      })
     },
-    (argv) => vagrantCommand(["destroy"])
+    async (argv) => {
+      await Vagrant.useVagrantFile(argv.vagrantfile);
+      Vagrant.destroy();
+    }
+  )
+
+  .command(
+    "docker-compose",
+    "runs docker compose inside vagrant image - temporary solution",
+    (yargs) => {
+      yargs.option("vagrantfile", {
+        type: "string",
+        description: "Custom vagrant file",
+      })
+      yargs.option("skipVersionCheck", {
+        type: "boolean",
+        description: "Ignore invalid prerequisite versions",
+      })
+    },
+    async (argv) => {
+      if (!argv.skipVersionCheck) {
+        await assertVagrantVersion();
+      }
+      await DockerCompose.provisionDockerCompose(argv.vagrantfile, argv._)
+    }
   )
 
   .option("verbose", {
     alias: "v",
     type: "boolean",
     description: "Run with verbose logging",
-  })
-
-  .option("vagrantfile", {
-    type: "string",
-    description: "Path to a custom vagrant file",
   })
 
   .showHelpOnFail(true).argv;
@@ -138,22 +199,6 @@ async function assertVagrantVersion() {
 }
 
 /**
- * Launch vagrant for the given vagrant file
- * @param {string} [vagrantFileName] 
- */
-async function launchVagrant(vagrantFileName) {
-  const config = vagrantFileName ? fs.readFileSync(vagrantFileName, 'utf-8') : '';
-  const isBoxRunning = await Vagrant.isVagrantBoxRunning();
-  if (isBoxRunning) {
-    console.log("vagrant box is already running");
-    await Vagrant.reloadMachine(config)
-  } else {
-    console.log("🚀 launching vagrant");
-    await Vagrant.startMachine(config);
-  }
-}
-
-/**
  * Launch a demo docker image which runs an interactive
  * powershell
  * 
@@ -178,7 +223,7 @@ async function launchPowerShell(noCleanup, vagrantFileName) {
  */
 async function dockerRun(dockerRunArgs, noCleanup, vagrantFileName) {
   await assertVersions();
-  await launchVagrant(vagrantFileName);
+  await Vagrant.launchVagrant(vagrantFileName);
   console.log(`🚀 launch docker\n$ docker run ${dockerRunArgs.join(' ')}`);
   // Always run docker interactive to wait until the docker image shuts down
   await Docker.runDocker(['--interactive', ...dockerRunArgs]);
