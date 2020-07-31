@@ -24,7 +24,7 @@ To use the CLI the following tools must be installed:
 
 ![Preview](https://github.com/jantimon/windows-docker-machine-cli/blob/master/preview.gif?raw=true)
 
-[![Windows Machine Diagram](https://github.com/StefanScherer/windows-docker-machine/raw/master/images/packer_vagrant_docker.png)](https://github.com/StefanScherer/windows-docker-machine/)
+[![Windows Machine Diagram](https://github.com/StefanScherer/windows-docker-machine/blob/main/images/packer_vagrant_docker.png)](https://github.com/StefanScherer/windows-docker-machine/)
 
 ## Running docker images
 
